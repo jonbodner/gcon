@@ -31,7 +31,7 @@ func timed(ctx context.Context, d time.Duration) (int, error) {
 
 var ErrFail = errors.New("fail")
 
-func alwaysErr(ctx context.Context, i int) (int, error) {
+func alwaysErr(_ context.Context, i int) (int, error) {
 	return 0, ErrFail
 }
 
@@ -189,5 +189,45 @@ func TestThen(t *testing.T) {
 	}
 	if !errors.Is(err, ErrFail) {
 		t.Error("expected ErrFail, got", err)
+	}
+}
+
+var blackhole string
+
+func BenchmarkPromise(b *testing.B) {
+	ctx := context.Background()
+	for i := 0; i < b.N; i++ {
+		p := Run(ctx, 10, doubler)
+		p2 := Then(ctx, p, toString)
+		blackhole, _ = p2.Get()
+	}
+}
+
+func BenchmarkChannel(b *testing.B) {
+	ctx := context.Background()
+	ch := make(chan int)
+	ch2 := make(chan int)
+	ch3 := make(chan string)
+	for i := 0; i < b.N; i++ {
+		go func(ctx context.Context) {
+			in := <-ch
+			out, _ := doubler(ctx, in)
+			ch2 <- out
+		}(ctx)
+		go func(ctx context.Context) {
+			in := <-ch2
+			out, _ := toString(ctx, in)
+			ch3 <- out
+		}(ctx)
+		ch <- 10
+		blackhole = <-ch3
+	}
+}
+
+func BenchmarkSequential(b *testing.B) {
+	ctx := context.Background()
+	for i := 0; i < b.N; i++ {
+		out, _ := doubler(ctx, 10)
+		blackhole, _ = toString(ctx, out)
 	}
 }
